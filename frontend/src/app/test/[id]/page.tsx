@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, useCallback, type ReactNode } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, CheckCircle2, XCircle, Loader2, Award } from "lucide-react";
+import { ArrowLeft, CheckCircle2, XCircle, Loader2, Award, Download } from "lucide-react";
 import { API_BASE, apiFetch } from "@/lib/api";
 
 interface QuestionDisplay {
@@ -40,6 +40,7 @@ const SECTION_KEYS = [
   "section_B_AssertionReason",
   "section_C_Objective",
   "section_D_MatchFollowing",
+  "section_D_Subjective",
 ] as const;
 
 function parseMatchAnswer(raw: string | undefined): Record<string, string> {
@@ -187,6 +188,27 @@ export default function TestPaperPage() {
   const [loading, setLoading] = useState(true);
   const [grading, setGrading] = useState(false);
   const [error, setError] = useState("");
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+
+  const downloadTestPdf = useCallback(async () => {
+    if (!id || downloadingPdf) return;
+    setDownloadingPdf(true);
+    try {
+      const res = await apiFetch(`${API_BASE}/test/${id}/pdf`);
+      if (!res.ok) throw new Error("PDF download failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `test_${id}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "PDF download failed");
+    } finally {
+      setDownloadingPdf(false);
+    }
+  }, [id, downloadingPdf]);
 
   const allQuestions = useMemo(
     () => (testMeta ? collectQuestions(testMeta.test_data) : []),
@@ -283,11 +305,25 @@ export default function TestPaperPage() {
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back to Subjects
           </Link>
-          {!gradeResult && (
-            <span className="text-sm font-medium text-gray-500">
-              Answered: {answeredCount} / {allQuestions.length}
-            </span>
-          )}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={downloadTestPdf}
+              disabled={downloadingPdf}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 disabled:opacity-50"
+            >
+              {downloadingPdf ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4" />
+              )}
+              Download PDF
+            </button>
+            {!gradeResult && (
+              <span className="text-sm font-medium text-gray-500">
+                Answered: {answeredCount} / {allQuestions.length}
+              </span>
+            )}
+          </div>
         </div>
 
         {gradeResult && (
@@ -524,15 +560,10 @@ export default function TestPaperPage() {
         {(content?.section_D_MatchFollowing?.length > 0 ||
           content?.section_D_Subjective?.length > 0) &&
           (() => {
-            const matchQs =
-              content.section_D_MatchFollowing?.length > 0
-                ? content.section_D_MatchFollowing
-                : content.section_D_Subjective || [];
+            const matchQs = content.section_D_MatchFollowing || [];
             const wordMatchQs = matchQs.filter((q) => q.type === "word_match");
             const pictureMatchQs = matchQs.filter((q) => q.type === "picture_match");
-            const legacyQs = matchQs.filter(
-              (q) => q.type !== "word_match" && q.type !== "picture_match"
-            );
+            const legacyQs = content.section_D_Subjective || [];
             let dNumber = 0;
 
             return (
