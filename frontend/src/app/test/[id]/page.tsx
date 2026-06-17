@@ -35,18 +35,141 @@ interface GradeResult {
 
 type Answers = Record<string, string>;
 
+const SECTION_KEYS = [
+  "section_A_MCQs",
+  "section_B_AssertionReason",
+  "section_C_Objective",
+  "section_D_MatchFollowing",
+] as const;
+
+function parseMatchAnswer(raw: string | undefined): Record<string, string> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      return Object.fromEntries(
+        Object.entries(parsed).map(([k, v]) => [String(k), String(v)])
+      );
+    }
+  } catch {
+    /* not JSON */
+  }
+  return {};
+}
+
+function isQuestionAnswered(q: QuestionDisplay, answer: string | undefined): boolean {
+  if (q.type === "word_match" || q.type === "picture_match") {
+    const map = parseMatchAnswer(answer);
+    return ["1", "2", "3", "4"].every((k) => map[k] && map[k].length > 0);
+  }
+  return answer !== undefined && answer !== "";
+}
+
 function collectQuestions(testData: Record<string, QuestionDisplay[]>): QuestionDisplay[] {
-  const keys = [
-    "section_A_MCQs",
-    "section_B_AssertionReason",
-    "section_C_Objective",
-    "section_D_Subjective",
-  ];
   const all: QuestionDisplay[] = [];
-  for (const key of keys) {
+  for (const key of SECTION_KEYS) {
     if (testData[key]) all.push(...testData[key]);
   }
   return all;
+}
+
+function MatchImage({ src, alt }: { src: string; alt: string }) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let objectUrl: string | null = null;
+    let cancelled = false;
+
+    apiFetch(src)
+      .then((res) => (res.ok ? res.blob() : null))
+      .then((blob) => {
+        if (cancelled || !blob) return;
+        objectUrl = URL.createObjectURL(blob);
+        setBlobUrl(objectUrl);
+      })
+      .catch(() => setBlobUrl(null));
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [src]);
+
+  if (!blobUrl) {
+    return <div className="h-28 bg-gray-100 animate-pulse rounded-md sm:h-36" />;
+  }
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={blobUrl}
+      alt={alt}
+      className="block max-w-full h-auto max-h-36 mx-auto rounded-md sm:max-h-44"
+    />
+  );
+}
+
+function TraditionalMatchLayout({
+  leftTitle,
+  rightTitle,
+  leftItems,
+  rightItems,
+  matchAns,
+  disabled,
+  onSelect,
+}: {
+  leftTitle: string;
+  rightTitle: string;
+  leftItems: { key: string; content: ReactNode }[];
+  rightItems: { key: string; text: string }[];
+  matchAns: Record<string, string>;
+  disabled: boolean;
+  onSelect: (leftKey: string, rightKey: string) => void;
+}) {
+  return (
+    <div className="overflow-hidden border border-gray-200 rounded-xl">
+      <div className="grid grid-cols-2 text-xs font-bold tracking-wide text-gray-600 uppercase bg-gray-100 border-b border-gray-200 sm:text-sm">
+        <div className="px-3 py-2 border-r border-gray-200 sm:px-4">{leftTitle}</div>
+        <div className="px-3 py-2 sm:px-4">{rightTitle}</div>
+      </div>
+      <div className="grid grid-cols-2">
+        <div className="border-r border-gray-200 divide-y divide-gray-100">
+          {leftItems.map((item) => (
+            <div key={item.key} className="px-3 py-3 sm:px-4 sm:py-4">
+              <div className="flex items-start gap-2">
+                <span className="font-bold text-gray-800 shrink-0">({item.key})</span>
+                <div className="min-w-0 flex-1">{item.content}</div>
+              </div>
+              <select
+                value={matchAns[item.key] || ""}
+                onChange={(e) => onSelect(item.key, e.target.value)}
+                disabled={disabled}
+                className="w-full px-2 py-1.5 mt-2 text-xs border border-gray-300 rounded-md bg-white sm:text-sm"
+              >
+                <option value="">Match →</option>
+                {rightItems.map((opt) => (
+                  <option key={opt.key} value={opt.key}>
+                    ({opt.key})
+                  </option>
+                ))}
+              </select>
+            </div>
+          ))}
+        </div>
+        <div className="divide-y divide-gray-100 bg-gray-50/50">
+          {rightItems.map((opt) => (
+            <div
+              key={opt.key}
+              className="flex items-start gap-2 px-3 py-3 text-sm leading-relaxed break-words sm:px-4 sm:py-4 sm:text-base"
+            >
+              <span className="font-bold text-gray-800 shrink-0">({opt.key})</span>
+              <span>{opt.text}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function TestPaperPage() {
@@ -54,6 +177,7 @@ export default function TestPaperPage() {
   const [testMeta, setTestMeta] = useState<{
     title: string;
     subject_name: string;
+    document_id?: number | null;
     total_marks: number;
     total_questions: number;
     test_data: Record<string, QuestionDisplay[]>;
@@ -70,10 +194,8 @@ export default function TestPaperPage() {
   );
 
   const answeredCount = useMemo(
-    () => allQuestions.filter((q) => {
-      const a = answers[String(q.id)];
-      return a !== undefined && a !== "";
-    }).length,
+    () =>
+      allQuestions.filter((q) => isQuestionAnswered(q, answers[String(q.id)])).length,
     [allQuestions, answers]
   );
 
@@ -122,6 +244,16 @@ export default function TestPaperPage() {
   const setAnswer = (questionId: number, value: string) => {
     if (gradeResult) return;
     setAnswers((prev) => ({ ...prev, [String(questionId)]: value }));
+  };
+
+  const setMatchAnswer = (questionId: number, rowKey: string, colKey: string) => {
+    if (gradeResult) return;
+    const existing = parseMatchAnswer(answers[String(questionId)]);
+    existing[rowKey] = colKey;
+    setAnswers((prev) => ({
+      ...prev,
+      [String(questionId)]: JSON.stringify(existing),
+    }));
   };
 
   if (loading) {
@@ -389,29 +521,137 @@ export default function TestPaperPage() {
           );
         })()}
 
-        {content?.section_D_Subjective?.length > 0 && (
-          <Section
-            title="SECTION D: Subjective Questions"
-            questions={content.section_D_Subjective}
-            renderQuestion={(q, i) => {
-              const d = q.display as { question: string };
-              const result = gradeMap.get(q.id);
-              return (
-                <QuestionCard key={q.id} number={i + 1} marks={q.marks} result={result}>
-                  <p className="mb-4 text-base leading-relaxed break-words sm:text-lg">{d.question}</p>
-                  <textarea
-                    value={answers[String(q.id)] || ""}
-                    onChange={(e) => setAnswer(q.id, e.target.value)}
-                    disabled={!!gradeResult}
-                    placeholder="Write your answer here..."
-                    rows={4}
-                    className="w-full px-4 py-3 text-base border border-gray-300 rounded-lg resize-y focus:outline-none focus:ring-2 focus:ring-blue-500"
+        {(content?.section_D_MatchFollowing?.length > 0 ||
+          content?.section_D_Subjective?.length > 0) &&
+          (() => {
+            const matchQs =
+              content.section_D_MatchFollowing?.length > 0
+                ? content.section_D_MatchFollowing
+                : content.section_D_Subjective || [];
+            const wordMatchQs = matchQs.filter((q) => q.type === "word_match");
+            const pictureMatchQs = matchQs.filter((q) => q.type === "picture_match");
+            const legacyQs = matchQs.filter(
+              (q) => q.type !== "word_match" && q.type !== "picture_match"
+            );
+            let dNumber = 0;
+
+            return (
+              <>
+                {wordMatchQs.length > 0 && (
+                  <Section
+                    title="SECTION D: Match the Following (Words)"
+                    subtitle="Match each item in Column A with the correct option in Column B."
+                    questions={wordMatchQs}
+                    renderQuestion={(q) => {
+                      dNumber += 1;
+                      const num = dNumber;
+                      const d = q.display as {
+                        column_a: { key: string; text: string }[];
+                        column_b: { key: string; text: string }[];
+                      };
+                      const matchAns = parseMatchAnswer(answers[String(q.id)]);
+                      const result = gradeMap.get(q.id);
+                      return (
+                        <QuestionCard key={q.id} number={num} marks={q.marks} result={result}>
+                          <TraditionalMatchLayout
+                            leftTitle="Column A"
+                            rightTitle="Column B"
+                            leftItems={d.column_a.map((row) => ({
+                              key: row.key,
+                              content: (
+                                <span className="text-sm leading-relaxed sm:text-base">{row.text}</span>
+                              ),
+                            }))}
+                            rightItems={d.column_b}
+                            matchAns={matchAns}
+                            disabled={!!gradeResult}
+                            onSelect={(leftKey, rightKey) =>
+                              setMatchAnswer(q.id, leftKey, rightKey)
+                            }
+                          />
+                        </QuestionCard>
+                      );
+                    }}
                   />
-                </QuestionCard>
-              );
-            }}
-          />
-        )}
+                )}
+
+                {pictureMatchQs.length > 0 && (
+                  <Section
+                    title="SECTION D: Match the Picture with Text"
+                    subtitle="Match each picture with the correct label."
+                    questions={pictureMatchQs}
+                    renderQuestion={(q) => {
+                      dNumber += 1;
+                      const num = dNumber;
+                      const d = q.display as {
+                        pictures: { key: string; image_id?: number; caption: string }[];
+                        labels: { key: string; text: string }[];
+                      };
+                      const matchAns = parseMatchAnswer(answers[String(q.id)]);
+                      const result = gradeMap.get(q.id);
+                      const docId = testMeta.document_id;
+                      return (
+                        <QuestionCard key={q.id} number={num} marks={q.marks} result={result}>
+                          <TraditionalMatchLayout
+                            leftTitle="Pictures"
+                            rightTitle="Labels"
+                            leftItems={d.pictures.map((pic) => {
+                              const imgUrl =
+                                pic.image_id && docId
+                                  ? `${API_BASE}/${docId}/images/${pic.image_id}`
+                                  : null;
+                              return {
+                                key: pic.key,
+                                content: imgUrl ? (
+                                  <MatchImage src={imgUrl} alt={pic.caption} />
+                                ) : (
+                                  <div className="flex items-center justify-center min-h-[5rem] px-2 text-xs text-center text-gray-500 bg-gray-100 rounded-md border border-dashed sm:text-sm">
+                                    {pic.caption}
+                                  </div>
+                                ),
+                              };
+                            })}
+                            rightItems={d.labels}
+                            matchAns={matchAns}
+                            disabled={!!gradeResult}
+                            onSelect={(leftKey, rightKey) =>
+                              setMatchAnswer(q.id, leftKey, rightKey)
+                            }
+                          />
+                        </QuestionCard>
+                      );
+                    }}
+                  />
+                )}
+
+                {legacyQs.length > 0 && (
+                  <Section
+                    title="SECTION D: Subjective Questions"
+                    questions={legacyQs}
+                    renderQuestion={(q, i) => {
+                      const d = q.display as { question: string };
+                      const result = gradeMap.get(q.id);
+                      return (
+                        <QuestionCard key={q.id} number={i + 1} marks={q.marks} result={result}>
+                          <p className="mb-4 text-base leading-relaxed break-words sm:text-lg">
+                            {d.question}
+                          </p>
+                          <textarea
+                            value={answers[String(q.id)] || ""}
+                            onChange={(e) => setAnswer(q.id, e.target.value)}
+                            disabled={!!gradeResult}
+                            placeholder="Write your answer here..."
+                            rows={4}
+                            className="w-full px-4 py-3 text-base border border-gray-300 rounded-lg resize-y focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </QuestionCard>
+                      );
+                    }}
+                  />
+                )}
+              </>
+            );
+          })()}
 
         {!gradeResult && (
           <div className="fixed bottom-0 left-0 right-0 z-20 px-3 py-3 bg-white border-t border-gray-200 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] sm:px-6 sm:py-4">
