@@ -28,7 +28,7 @@ export function middleware(request: NextRequest) {
   }
 
   if (!isAuthenticated && !isPublic) {
-    return NextResponse.redirect(new URL("/gate", request.url));
+    return NextResponse.redirect(new URL("/login", request.url));
   }
 
   return NextResponse.next();
