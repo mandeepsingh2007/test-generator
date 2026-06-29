@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 const AUTH_COOKIE = "tg_auth";
 const VALID_ID = "testid";
-const VALID_PASSWORD = "testpass";
+const VALID_PASSWORD = "NeGraphics@2026";
 
 export async function POST(request: Request) {
   let body: { id?: string; password?: string };
@@ -29,7 +29,6 @@ export async function POST(request: Request) {
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: 60 * 60 * 24 * 7,
   });
 
   return response;

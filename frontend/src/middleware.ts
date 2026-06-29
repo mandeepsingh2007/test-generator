@@ -13,18 +13,25 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Force login page and clear session for the root URL
+  if (pathname === "/") {
+    const response = NextResponse.redirect(new URL("/login", request.url));
+    response.cookies.delete(AUTH_COOKIE);
+    return response;
+  }
+
   const isPublic = PUBLIC_PATHS.some(
     (path) => pathname === path || pathname.startsWith(`${path}/`)
   );
 
-  if (isAuthenticated && pathname === "/login") {
+  if (pathname === "/login") {
     const response = NextResponse.next();
     response.cookies.delete(AUTH_COOKIE);
     return response;
   }
 
   if (isAuthenticated && pathname === "/gate") {
-    return NextResponse.redirect(new URL("/", request.url));
+    return NextResponse.redirect(new URL("/home", request.url));
   }
 
   if (!isAuthenticated && !isPublic) {

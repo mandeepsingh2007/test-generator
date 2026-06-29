@@ -5,7 +5,7 @@ import { ArrowLeft } from "lucide-react";
 export default function UploadPage() {
   return (
     <div className="min-h-screen bg-background p-6">
-      <Link href="/" className="inline-flex items-center text-gray-400 hover:text-white transition-colors mb-8">
+      <Link href="/home" className="inline-flex items-center text-gray-400 hover:text-white transition-colors mb-8">
         <ArrowLeft className="w-4 h-4 mr-2" />
         Back to Home
       </Link>
@@ -14,7 +14,7 @@ export default function UploadPage() {
         <div className="text-center mb-16">
           <h1 className="text-4xl font-bold tracking-tight mb-4">Science Test Generator</h1>
           <p className="text-gray-400 max-w-xl mx-auto text-lg">
-            Generate a 50-mark Science exam from the pre-loaded Class 3 textbook (PDF).
+            Select chapters, choose question formats, and generate a custom 50-mark Science exam.
           </p>
         </div>
         
